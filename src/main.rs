@@ -1,7 +1,7 @@
 // [ChatGPT-4]
-// Import the std::time::Duration and std::thread modules for controlling sleep duration
-use std::time::Duration;
-use std::thread;
+// // Import the std::time::Duration and std::thread modules for controlling sleep duration
+// use std::time::Duration;
+// use std::thread;
 
 // Import the HidApi crate and HidDevice struct
 use hidapi::{HidApi, HidDevice};
@@ -11,51 +11,57 @@ use ctrlc;
 const VENDOR_ID: u16 = 0x054C;
 const PRODUCT_ID: u16 = 0x0CE6;
 
-// Define the main function that returns a Result with a trait object for Error
+use std::io::{stdout, Write};
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create a new HidApi instance
     let api = HidApi::new()?;
-    // Open the DualSense controller using the vendor and product IDs
     let device = api.open(VENDOR_ID, PRODUCT_ID)?;
 
     ctrlc::set_handler(move || {
-        // device.close(); // Close the HID device
         println!("Exiting...");
         std::process::exit(0);
     })?;
 
-    // Enter an infinite loop to read the controller input
-    loop {
-        // Create a mutable buffer to store the input data
-        let mut data = [0u8; 64];
-        // Read the controller input with a 10ms timeout and store the result
-        match device.read_timeout(&mut data, 10) {
-            // If data is read successfully, process the input
-            Ok(_) => {
-                println!("Data: {:?}", &data[..bytes_read]);
+    let num_rows = 11;
+    let num_columns = 6;
+    let row_offset: usize = 1; // Number of rows down to start printing
 
-                // Process the input and retrieve the resistance values for L2 and R2 triggers
-                let (trigger_l, trigger_r) = process_input(&data);
-                
-                println!("L2: {}, R2: {}", trigger_l, trigger_r);
+    let newline_str = "\n".repeat(num_rows+1);
+    print!("{}", newline_str);
 
-                // Set the adaptive triggers with the resistance values
-                set_adaptive_triggers(&device, trigger_l, trigger_r)?;
+    let display_data = |data: &[u8]| {
+        for row in 0..num_rows {
+            for column in 0..num_columns {
+                let index = row * num_columns + column;
+                if index < data.len() {
+                    print!("{:2}: {:<4} ", index, data[index]);
+                }
             }
-            // If there's an error or timeout, continue to the next iteration
-            Err(_) => continue,
+            print!("\n");
+        }
+    };
+
+    // Print initial empty lines
+    for _ in 0..row_offset {
+        println!();
+    }
+
+    loop {
+        let mut data = [0u8; 64];
+        match device.read_timeout(&mut data, 10) {
+            Ok(bytes_read) if bytes_read > 0 => {
+                print!("\x1B[{}F", num_rows + row_offset); // Move the cursor up by 'num_rows + row_offset' lines
+                display_data(&data);
+                print!("\x1B[{}E", num_rows); // Move the cursor down by 'num_rows' lines
+                stdout().flush()?; // Flush the output to ensure it's displayed
+            }
+            Ok(_) => continue,
+            Err(e) => {
+                eprintln!("Error: {:?}", e);
+                continue;
+            }
         }
     }
-}
-
-// Define a function to process the input data and return the resistance values for L2 and R2 triggers
-fn process_input(data: &[u8]) -> (u8, u8) {
-    // Check if the L2 trigger is pressed and set the resistance value accordingly
-    let trigger_l = if data[7] > 0 { 127 } else { 0 };
-    // Check if the R2 trigger is pressed and set the resistance value accordingly
-    let trigger_r = if data[8] > 0 { 127 } else { 0 };
-    // Return the resistance values for L2 and R2 triggers
-    (trigger_l, trigger_r)
 }
 
 // Define a function to set the adaptive triggers with the given resistance values
